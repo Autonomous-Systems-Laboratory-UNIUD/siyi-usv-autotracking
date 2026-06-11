@@ -32,22 +32,21 @@ def test(yaw, pitch, rec):
 
     try:
         logger.info("Camera type: %s", cam._hw_msg.cam_type_str)
-        
+
         cam.requestCenterGimbal()
-        sleep(3)
-        cam.requestSetAngles(yaw, pitch)
-        sleep(3)
+        sleep(1)
 
-        logger.info(
-            "Camera Attitude (yaw, pitch, roll): %s",
-            cam.getAttitude()
-        )
+        cam.requestFPVMode()
+        sleep(1)
 
-        if rec:
-            logger.info("Recording started.")
-            cam.requestRecording()
+        logger.info("Locking camera orientation.")
 
-        logger.info("Setup completed.")
+        while True:
+            cam.requestSetAngles(0.0, -90.0)
+            sleep(0.1)
+
+    except KeyboardInterrupt:
+        logger.info("Stopping.")
 
     finally:
         cam.disconnect()
