@@ -13,53 +13,48 @@ class KalmanFilter2D:
         State: [x, y, vx, vy]
         Measurement: [x, y]
         """
+
         self.dt = float(dt)
         self.process_noise = float(process_noise)
         self.measurement_noise = float(measurement_noise)
         self.initial_velocity_uncertainty = float(initial_velocity_uncertainty)
 
-        # State initial value
-        self.x = np.zeros((4, 1))  # [x, y, vx, vy]^T
-
-        # Covariance initial value
+        self.x = np.zeros((4, 1), dtype=np.float64)
         self.P = self._initial_covariance()
 
-        # State transition matrix
-        self.F = np.eye(4)
+        self.F = np.eye(4, dtype=np.float64)
+        self.H = np.array(
+            [[1, 0, 0, 0],
+             [0, 1, 0, 0]],
+            dtype=np.float64
+        )
 
-        # Measurement matrix
-        self.H = np.array([
-            [1, 0, 0, 0],
-            [0, 1, 0, 0]
-        ], dtype=float)
+        self.R = np.eye(2, dtype=np.float64) * self.measurement_noise
+        self.I = np.eye(4, dtype=np.float64)
 
-        # Measurement noise
-        self.R = np.eye(2) * self.measurement_noise
+        self.Q = np.eye(4, dtype=np.float64)
 
-        # Identity matrix
-        self.I = np.eye(4)
-
-        self.Q = np.eye(4)
         self._set_dt(self.dt)
+
         self.initialized = False
 
-    def initialize(self, x, y, vx=0.0, vy=0.0) -> None:
-        self.x = np.array([[x], [y], [vx], [vy]], dtype=float)
+    def initialize(self, x, y, vx=0.0, vy=0.0):
+        self.x = np.array([[x], [y], [vx], [vy]], dtype=np.float64)
         self.P = self._initial_covariance()
         self.initialized = True
 
     def reset(self):
-        self.x = np.zeros((4, 1))
+        self.x = np.zeros((4, 1), dtype=np.float64)
         self.P = self._initial_covariance()
         self.initialized = False
 
     @property
-    def position(self) -> tuple[float, float]:
-        return tuple(float(value) for value in self.x[:2, 0])
+    def position(self):
+        return tuple(self.x[:2, 0])
 
     @property
-    def velocity(self) -> tuple[float, float]:
-        return tuple(float(value) for value in self.x[2:, 0])
+    def velocity(self):
+        return tuple(self.x[2:, 0])
 
     def _initial_covariance(self):
         return np.diag([
@@ -67,59 +62,46 @@ class KalmanFilter2D:
             self.measurement_noise,
             self.initial_velocity_uncertainty,
             self.initial_velocity_uncertainty,
-        ])
+        ]).astype(np.float64)
 
     def _set_dt(self, dt):
         self.dt = max(1e-3, float(dt))
-        dt2 = self.dt * self.dt
+
+        dt2 = self.dt ** 2
         dt3 = dt2 * self.dt
-        dt4 = dt2 * dt2
+        dt4 = dt2 ** 2
 
         self.F = np.array([
             [1, 0, self.dt, 0],
             [0, 1, 0, self.dt],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
-        ], dtype=float)
+        ], dtype=np.float64)
 
         self.Q = self.process_noise * np.array([
-            [dt4 / 4.0, 0, dt3 / 2.0, 0],
-            [0, dt4 / 4.0, 0, dt3 / 2.0],
-            [dt3 / 2.0, 0, dt2, 0],
-            [0, dt3 / 2.0, 0, dt2],
-        ], dtype=float)
+            [dt4/4, 0, dt3/2, 0],
+            [0, dt4/4, 0, dt3/2],
+            [dt3/2, 0, dt2, 0],
+            [0, dt3/2, 0, dt2],
+        ], dtype=np.float64)
 
     def predict(self, dt=None):
         if dt is not None:
             self._set_dt(dt)
 
-        # Prediction of the state
         self.x = self.F @ self.x
-
-        # Prediction of the covariance
         self.P = self.F @ self.P @ self.F.T + self.Q
 
-        return self.x[:2].ravel()
+        return self.x.ravel()
 
     def update(self, z):
-        """
-        z: np.array([[x], [y]]) or tuple/list (x, y)
-        """
-        z = np.asarray(z, dtype=float).reshape(2, 1)
+        z = np.asarray(z, dtype=np.float64).reshape(2, 1)
 
-        # Innovation
         y = z - (self.H @ self.x)
-
-        # Innovation covariance
         S = self.H @ self.P @ self.H.T + self.R
-
-        # Kalman gain
         K = self.P @ self.H.T @ np.linalg.inv(S)
 
-        # State update
         self.x = self.x + K @ y
-
-        # Covariance update
         self.P = (self.I - K @ self.H) @ self.P
 
-        return self.x[:2].ravel()
+        return self.x.ravel()

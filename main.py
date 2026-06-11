@@ -4,11 +4,16 @@ import sys
 import time
 import cv2
 import logging
+import zenoh
+import numpy as np
 
-from auto_tracking import SiyiAutoTracker, draw_tracking_overlay
-from detector_adapter import DetectorAdapter
+from zenoh.ext import z_serialize
+from draw import draw_tracking_overlay
+from detector_adapter import DetectionService
 from gstreamer import GStreamerFrameStreamer
 from keyboard_manager import TerminalKeyReader
+from kalman_filter import KalmanFilter2D
+from helpers import serialize_vector3
 
 SDK_DIR = os.path.join(os.path.dirname(__file__), "siyi_sdk")
 if SDK_DIR not in sys.path:
@@ -16,98 +21,113 @@ if SDK_DIR not in sys.path:
 
 from siyi_sdk import SIYISDK
 
-RTSP_URL = "rtsp://192.168.144.25:8554/main.264"
+
 CAMERA_IP = "192.168.144.25"
-CAMERA_PORT = 37260
-WINDOW_NAME = "Latest frame from appsink"
-MODELS_DIR_PATH = os.path.join(os.path.dirname(__file__), "usv_detection/models")
+CAMERA_PORT = 5600
 
-parser = ArgumentParser(prog="SIYI Auto Tracker", description="A tool to track ASVs using a SIYI camera and a YOLO models.")
-parser.add_argument("--rtsp-url", type=str, default=RTSP_URL, help="RTSP URL of the camera stream")
-parser.add_argument("--rtsp-transport", choices=("udp", "tcp"), default="udp", help="RTSP transport to use (default: udp)")
-parser.add_argument("--rtsp-latency", type=int, default=10, help="RTSP jitter buffer latency in milliseconds (default: 10)")
-parser.add_argument("--camera-ip", type=str, default=CAMERA_IP, help="IP address of the SIYI camera for control")
-parser.add_argument("--camera-port", type=int, default=CAMERA_PORT, help="Port number for SIYI camera control")
-parser.add_argument("--model", type=str, default="yolo26x", help="Object detection model to use (default: yolo26x)")
-parser.add_argument("--confidence", type=float, required=True, help="Confidence threshold for object detection")
-args = parser.parse_args()
+BASE_DIR = os.path.dirname(__file__)
+MODELS_DIR = os.path.join(BASE_DIR, "usv_detection/models")
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument("--model", type=str, default="yolo26x")
+    parser.add_argument("--min_consecutive_detections", type=int, required=True)
+    parser.add_argument("--confidence", type=float, required=True)
+    return parser.parse_args()
 
 
 def main():
-    camera = None
-    tracker = None
-    detector = DetectorAdapter(f"{MODELS_DIR_PATH}/{args.model}", args.confidence)
-    streamer = GStreamerFrameStreamer(
-        args.rtsp_url,
-        rtsp_transport=args.rtsp_transport,
-        rtsp_latency=args.rtsp_latency,
-        logger=logger,
-    )
+    args = parse_args()
 
-    try:
-        camera = SIYISDK(server_ip=args.camera_ip, port=args.camera_port, debug=False)
-        if camera.connect():
-            tracker = SiyiAutoTracker(camera)
-            logger.info("Camera control connected.")
-        else:
-            # Ensure we don't call camera.disconnect() at the end in this case
-            camera = None
-            logger.warning("Camera control unavailable, streaming only.")
-    except Exception as exc:
-        logger.error(f"Camera control initialization failed: {exc}")
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("app")
 
-    logger.info("Starting RTSP stream %s over %s.", args.rtsp_url, args.rtsp_transport.upper())
+    camera = SIYISDK(server_ip=CAMERA_IP, port=CAMERA_PORT)
+
+    detector = DetectionService()
+    model_path = os.path.join(MODELS_DIR, args.model)
+
+    kalman = KalmanFilter2D()
+    last_time = time.time()
+
+    consecutive_detections = 0
+
+    streamer = GStreamerFrameStreamer(port=CAMERA_PORT, logger=logger)
     streamer.start()
 
-    if camera is not None:
-        camera.requestCenterGimbal()
-    logger.info("Pipeline started, camera is centered and available. Press 'q' to quit.")
+    logger.info("Waiting for stream on UDP %s", CAMERA_PORT)
 
     with TerminalKeyReader() as key_reader:
-        try:
+        with zenoh.open(zenoh.Config()) as session:
+            key = "cop1/movement/kalman"
+            pub = session.declare_publisher(key)
+
             while True:
                 frame = streamer.get_frame()
 
                 if frame is None:
-                    if tracker is not None:
-                        tracker.update(None, None)
+                    time.sleep(0.005)
+                    continue
+
+                detection = detector.detect(
+                    model_path=model_path,
+                    frame=frame,
+                    confidence=args.confidence,
+                )
+
+                now = time.time()
+                dt = now - last_time
+                last_time = now
+
+                # Prediction step
+                kalman.predict(dt)
+
+                if detection is not None:
+                    consecutive_detections += 1
+
+                    cx, cy = detection.center
+
+                    if not kalman.initialized:
+                        # After n consecutive detections we initialize kalman, otherwise we just update it
+                        if consecutive_detections >= args.min_consecutive_detections:
+                            kalman.initialize(cx, cy)
+
+                            logger.info("Kalman initialized after %d consecutive detections", consecutive_detections)
+                    else:
+                        kalman.update((cx, cy))
+
                 else:
-                    detection = detector.detect(frame)
-                    command = None
+                    consecutive_detections = 0
 
-                    if tracker is not None:
-                        command = tracker.update(frame.shape, detection)
-                    display = draw_tracking_overlay(
-                        frame,
-                        detection,
-                        command=command,
-                        estimated_center=(None if tracker is None else tracker.estimated_center),
-                        estimated_velocity=(None if tracker is None else tracker.estimated_velocity),
+                # Publishing if target is stable
+                if kalman.initialized and consecutive_detections >= args.min_consecutive_detections:
+                    vx, vy = kalman.velocity
+
+                    msg = serialize_vector3(vx, vy, 0.0)
+                    pub.put(msg)
+
+                    logger.info(
+                        "Published vx=%.3f vy=%.3f",
+                        vx,
+                        vy,
                     )
-                    cv2.imshow(WINDOW_NAME, display)
 
-                # Listening for 'q' key press in the OpenCV window
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord("q"):
+                display = draw_tracking_overlay(frame, detection)
+
+                cv2.imshow("Siyi USVs detection", display)
+
+                if (cv2.waitKey(1) & 0xFF) == ord("q"):
                     break
 
-                # Listening for 'q' key press in the terminal
-                terminal_key = key_reader.poll()
-                if terminal_key == "q":
+                if key_reader.poll() == "q":
                     break
 
-                # Small sleep to prevent high CPU usage
-                time.sleep(0.001)  
-        finally:
-            streamer.stop()
-            if tracker is not None:
-                tracker.stop()
-            if camera is not None:
-                camera.disconnect()
-            cv2.destroyAllWindows()
+    logger.info("Shutting down")
+
+    streamer.stop()
+    camera.disconnect()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

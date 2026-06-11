@@ -840,7 +840,6 @@ class SIYISDK:
             except Exception as e:
                 self._logger.error(f"Camera not recognized. Key: {cam_id}")
                 self._logger.error("Camera not recognized Error %s", e)
-
             return True
         except Exception as e:
             self._logger.error("Error %s", e)

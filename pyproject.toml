@@ -5,9 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "eclipse-zenoh>=1.9.0",
     "imutils>=0.5.4",
     "numpy>=2.4.4",
     "opencv-python>=4.13.0.92",
+    "pygobject>=3.56.3",
     "torch",
     "ultralytics>=8.4.43",
 ]
