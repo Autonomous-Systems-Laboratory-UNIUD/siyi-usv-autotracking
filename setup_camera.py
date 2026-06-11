@@ -27,32 +27,30 @@ def test(yaw, pitch, rec):
     logger = logging.getLogger(__name__)
 
     if not cam.connect():
-        logging.info("No connection, exiting.")
-        exit(1)
+        logger.info("No connection, exiting.")
+        sys.exit(1)
 
-    logger.info("Camera type: %s", cam._hw_msg.cam_type_str)
-    cam.requestSetAngles(yaw, pitch)
-    sleep(3)
-    logging.info("Camera Attitude (yaw, pitch, roll): %s", cam.getAttitude())
+    try:
+        logger.info("Camera type: %s", cam._hw_msg.cam_type_str)
+        
+        cam.requestCenterGimbal()
+        sleep(3)
+        cam.requestSetAngles(yaw, pitch)
+        sleep(3)
 
-    logging.info("Setup completed.")
+        logger.info(
+            "Camera Attitude (yaw, pitch, roll): %s",
+            cam.getAttitude()
+        )
 
+        if rec:
+            logger.info("Recording started.")
+            cam.requestRecording()
 
-    with TerminalKeyReader() as key_reader:
-        try:
-            if rec:
-                    logging.info("Recording started, press 'q' to exit in any time.")
-                    cam.requestRecording()
-            while True:
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q"):
-                        break
+        logger.info("Setup completed.")
 
-                    terminal_key = key_reader.poll()
-                    if terminal_key == "q":
-                        break
-        finally:
-            cam.disconnect()
+    finally:
+        cam.disconnect()
 
 if __name__ == "__main__":
     test(args.yaw, args.pitch, args.rec)
