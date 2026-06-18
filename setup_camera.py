@@ -42,7 +42,7 @@ def test(yaw, pitch, rec):
         logger.info("Locking camera orientation.")
 
         while True:
-            cam.requestSetAngles(0.0, -90.0)
+            cam.requestSetAngles(yaw, pitch)
             sleep(0.1)
 
     except KeyboardInterrupt:
