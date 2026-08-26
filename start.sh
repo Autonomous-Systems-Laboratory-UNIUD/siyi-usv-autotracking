@@ -1,5 +1,7 @@
 #!/bin/bash
 
+PORT=$1
+
 trap 'kill -- -$$' INT TERM EXIT
 
 uv run setup_camera.py --yaw 0 --pitch -90 &
@@ -11,4 +13,4 @@ gst-launch-1.0 \
     rtph264depay ! \
     h264parse ! \
     rtph264pay pt=96 config-interval=1 ! \
-    udpsink host=192.168.0.125 port=5600
+    udpsink host=192.168.0.125 port=$PORT

@@ -22,9 +22,6 @@ if SDK_DIR not in sys.path:
 from siyi_sdk import SIYISDK
 
 
-CAMERA_IP = "192.168.144.25"
-CAMERA_PORT = 5600
-
 BASE_DIR = os.path.dirname(__file__)
 MODELS_DIR = os.path.join(BASE_DIR, "usv_detection/models")
 
@@ -32,7 +29,8 @@ MODELS_DIR = os.path.join(BASE_DIR, "usv_detection/models")
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument("--model", type=str, default="yolo26n", help="Model name without extension")
-    parser.add_argument("--drone_name", type=str, required=True, help="Drone name to be displayed in the opencv window")
+    parser.add_argument("--drone_name", type=str, required=True, choices=["X500B", "X500W"] help="Drone name to be displayed in the opencv window")
+    parser.add_argument("--streaming_port", type0str, required=True, help="Port used to receive the streaming from the raspberry")
     parser.add_argument("--min_consecutive_detections", type=int, required=True, help="Minimun number of consecutive detections (frames) to be considered to apply the kalman filter")
     parser.add_argument("--confidence", type=float, required=True, help="Model confidence")
     return parser.parse_args()
@@ -44,8 +42,6 @@ def main():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("app")
 
-    camera = SIYISDK(server_ip=CAMERA_IP, port=CAMERA_PORT)
-
     detector = DetectionService()
     model_path = os.path.join(MODELS_DIR, args.model)
 
@@ -54,16 +50,17 @@ def main():
 
     consecutive_detections = 0
 
-    streamer = GStreamerFrameStreamer(port=CAMERA_PORT, logger=logger)
+    streamer = GStreamerFrameStreamer(port=args.streaming_port, logger=logger)
     streamer.start()
 
-    logger.info("Waiting for stream on UDP %s", CAMERA_PORT)
+    logger.info("Waiting for stream on UDP %s", args.streaming_port)
 
     with TerminalKeyReader() as key_reader:
         conf = zenoh.Config()
-        conf.insert_json5("connect/endpoints", '["tcp/192.168.0.110:7447"]')
+        conf.insert_json5("connect/endpoints", '["tcp/192.168.0.125:7447"]')
         with zenoh.open(conf) as session:
-            key = "cop1/movement/kalman"
+            cop = "cop1" if args.drone_name == "X500B" else "cop2"
+            key = f"{cop}/movement/kalman"
             pub = session.declare_publisher(key)
 
             while True:
@@ -129,7 +126,6 @@ def main():
     logger.info("Shutting down")
 
     streamer.stop()
-    camera.disconnect()
     cv2.destroyAllWindows()
 
 
