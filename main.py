@@ -31,9 +31,10 @@ MODELS_DIR = os.path.join(BASE_DIR, "usv_detection/models")
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument("--model", type=str, default="yolo26x")
-    parser.add_argument("--min_consecutive_detections", type=int, required=True)
-    parser.add_argument("--confidence", type=float, required=True)
+    parser.add_argument("--model", type=str, default="yolo26n", help="Model name without extension")
+    parser.add_argument("--drone_name", type=str, required=True, help="Drone name to be displayed in the opencv window")
+    parser.add_argument("--min_consecutive_detections", type=int, required=True, help="Minimun number of consecutive detections (frames) to be considered to apply the kalman filter")
+    parser.add_argument("--confidence", type=float, required=True, help="Model confidence")
     return parser.parse_args()
 
 
@@ -59,7 +60,9 @@ def main():
     logger.info("Waiting for stream on UDP %s", CAMERA_PORT)
 
     with TerminalKeyReader() as key_reader:
-        with zenoh.open(zenoh.Config()) as session:
+        conf = zenoh.Config()
+        conf.insert_json5("connect/endpoints", '["tcp/192.168.0.110:7447"]')
+        with zenoh.open(conf) as session:
             key = "cop1/movement/kalman"
             pub = session.declare_publisher(key)
 
@@ -115,7 +118,7 @@ def main():
 
                 display = draw_tracking_overlay(frame, detection)
 
-                cv2.imshow("Siyi USVs detection", display)
+                cv2.imshow(f"{args.drone_name}", display)
 
                 if (cv2.waitKey(1) & 0xFF) == ord("q"):
                     break

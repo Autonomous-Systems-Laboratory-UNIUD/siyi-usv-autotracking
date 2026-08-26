@@ -14,3 +14,6 @@ wheels/
 
 .codex
 
+# Zenoh local tests
+test_sub.py
+test_pub.py
