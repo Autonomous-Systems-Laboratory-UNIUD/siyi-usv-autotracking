@@ -2,6 +2,47 @@ import numpy as np
 
 
 class KalmanFilter2D:
+    '''
+    2D Kalman Filter for estimating an object's position and velocity.
+
+    The filter maintains a state vector:
+        [x, y, vx, vy]
+
+    where:
+        x, y   = object position
+        vx, vy = object velocity
+
+    The input measurements contain only the object's position [x, y]. Velocity is estimated indirectly by observing how the position changes over time.
+
+    The filter uses a constant-velocity motion model:
+        x(t+dt)  = x(t)  + vx(t) * dt
+        y(t+dt)  = y(t)  + vy(t) * dt
+        vx(t+dt) = vx(t)
+        vy(t+dt) = vy(t)
+
+    At each iteration, two steps are performed:
+        1. Predict:
+        Predicts the new position and velocity based on the previous state and the elapsed time (dt).
+
+        2. Update:
+        Compares the prediction with the new measurement [x, y] and corrects the estimated state based on the uncertainty of the prediction and the measurement noise.
+
+    Main parameters:
+        dt:
+            Time interval between two updates.
+
+        process_noise:
+            Uncertainty of the motion model. Higher values make the filter more responsive to sudden changes in motion.
+
+        measurement_noise:
+            Uncertainty of the measurements. Higher values make the filter rely more on the prediction than on the measurements.
+
+        initial_velocity_uncertainty:
+            Initial uncertainty of the estimated velocity.
+
+    The filter is suitable for tracking objects using cameras, sensors, or other systems that provide noisy 2D position measurements.
+    '''
+
     def __init__(
         self,
         dt=1.0,
