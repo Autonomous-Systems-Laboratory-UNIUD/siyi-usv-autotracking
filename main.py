@@ -168,10 +168,17 @@ def main():
                         last_detection_time = None
 
                 # Publishing if target is stable
+                coasting_now = (
+                    detection is None
+                    and kalman.initialized
+                    and last_detection_time is not None
+                    and (now - last_detection_time) <= args.max_coast
+                )
+
                 if (
                     kalman.initialized
-                    and detection is not None
                     and consecutive_detections >= args.min_consecutive_detections
+                    and (detection is not None or coasting_now)
                 ):
                     vx, vy = kalman.velocity
 
