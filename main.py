@@ -141,9 +141,11 @@ def main():
                             )
                     else:
                         kalman.predict(dt)
-                        accepted, nis = kalman.update((cx, cy))
-                        if not accepted:
-                            logger.warning("Rejected outlier detection (NIS=%.1f)", nis)
+                        kalman.update((cx, cy))
+                        if not kalman.last_accepted:
+                            logger.warning(
+                                "Rejected outlier detection (NIS=%.1f)", kalman.last_nis
+                            )
 
                 else:
                     # No detection this frame. Coast on the motion model for a short

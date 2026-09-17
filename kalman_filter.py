@@ -9,10 +9,11 @@ class KalmanFilter2D:
         [x, y, vx, vy]
 
     where:
-        x, y   = object position
-        vx, vy = object velocity
+        x, y   = object position (pixels)
+        vx, vy = object velocity (pixels / second)
 
-    The input measurements contain only the object's position [x, y]. Velocity is estimated indirectly by observing how the position changes over time.
+    The input measurements contain only the object's position [x, y]. Velocity is
+    estimated indirectly by observing how the position changes over time.
 
     The filter uses a constant-velocity motion model:
         x(t+dt)  = x(t)  + vx(t) * dt
@@ -22,25 +23,42 @@ class KalmanFilter2D:
 
     At each iteration, two steps are performed:
         1. Predict:
-        Predicts the new position and velocity based on the previous state and the elapsed time (dt).
+        Predicts the new position and velocity based on the previous state and the
+        elapsed time (dt).
 
         2. Update:
-        Compares the prediction with the new measurement [x, y] and corrects the estimated state based on the uncertainty of the prediction and the measurement noise.
+        Compares the prediction with the new measurement [x, y] and corrects the
+        estimated state based on the uncertainty of the prediction and the
+        measurement noise.
 
     Main parameters:
         dt:
             Time interval between two updates.
 
         process_noise:
-            Uncertainty of the motion model. Higher values make the filter more responsive to sudden changes in motion.
+            Variance of the unmodelled acceleration, in px^2/s^4. Higher values make
+            the filter more responsive to sudden changes in motion. This is the
+            parameter that sets the group delay of the velocity estimate: too low and
+            the estimate trails the true motion by a second or more.
 
         measurement_noise:
-            Uncertainty of the measurements. Higher values make the filter rely more on the prediction than on the measurements.
+            Variance of the detector's centre estimate, in px^2. Higher values make
+            the filter rely more on the prediction than on the measurements.
 
         initial_velocity_uncertainty:
-            Initial uncertainty of the estimated velocity.
+            Initial variance of the estimated velocity, in (px/s)^2. Keep this near
+            the accuracy of whatever seed velocity is passed to initialize(); an
+            inflated value produces large spurious velocity estimates in the first
+            frames after initialization.
 
-    The filter is suitable for tracking objects using cameras, sensors, or other systems that provide noisy 2D position measurements.
+        max_dt:
+            Upper clamp on the prediction interval. Protects the covariance from
+            blowing up if the loop stalls or a frame takes unusually long.
+
+        gate_threshold:
+            Chi-square threshold on the normalized innovation squared (2 dof).
+            13.82 corresponds to 99.9%. Measurements beyond this are rejected as
+            outliers rather than being fused.
     '''
 
     def __init__(
@@ -64,7 +82,6 @@ class KalmanFilter2D:
         self.max_dt = float(max_dt)
         self.gate_threshold = float(gate_threshold)
 
-
         self.x = np.zeros((4, 1), dtype=np.float64)
         self.P = self._initial_covariance()
 
@@ -83,6 +100,8 @@ class KalmanFilter2D:
         self._set_dt(self.dt)
 
         self.initialized = False
+        self.last_accepted = True
+        self.last_nis = 0.0
 
     def initialize(self, x, y, vx=0.0, vy=0.0):
         self.x = np.array([[x], [y], [vx], [vy]], dtype=np.float64)
@@ -93,6 +112,8 @@ class KalmanFilter2D:
         self.x = np.zeros((4, 1), dtype=np.float64)
         self.P = self._initial_covariance()
         self.initialized = False
+        self.last_accepted = True
+        self.last_nis = 0.0
 
     @property
     def position(self):
@@ -143,23 +164,28 @@ class KalmanFilter2D:
     def update(self, z):
         """
         Fuse a position measurement.
- 
-        Returns (accepted, nis). The measurement is rejected and the state left
-        untouched when the normalized innovation squared exceeds gate_threshold.
+
+        Returns the state vector, as before. Whether the measurement was actually
+        fused is reported through self.last_accepted, and the normalized innovation
+        squared through self.last_nis. A measurement whose NIS exceeds
+        gate_threshold is rejected and the state is left untouched.
         """
         z = np.asarray(z, dtype=np.float64).reshape(2, 1)
- 
+
         y = z - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + self.R
         S_inv = np.linalg.inv(S)
- 
-        nis = float(y.T @ S_inv @ y)
-        if nis > self.gate_threshold:
-            return False, nis
- 
+
+        self.last_nis = (y.T @ S_inv @ y).item()
+
+        if self.last_nis > self.gate_threshold:
+            self.last_accepted = False
+            return self.x.ravel()
+
         K = self.P @ self.H.T @ S_inv
- 
+
         self.x = self.x + K @ y
         self.P = (self.I - K @ self.H) @ self.P
- 
-        return True, nis
+
+        self.last_accepted = True
+        return self.x.ravel()
