@@ -102,11 +102,15 @@ class KalmanFilter2D:
         self.initialized = False
         self.last_accepted = True
         self.last_nis = 0.0
+        self.consecutive_rejections = 0
 
     def initialize(self, x, y, vx=0.0, vy=0.0):
         self.x = np.array([[x], [y], [vx], [vy]], dtype=np.float64)
         self.P = self._initial_covariance()
         self.initialized = True
+        self.last_accepted = True
+        self.last_nis = 0.0
+        self.consecutive_rejections = 0
 
     def reset(self):
         self.x = np.zeros((4, 1), dtype=np.float64)
@@ -114,6 +118,7 @@ class KalmanFilter2D:
         self.initialized = False
         self.last_accepted = True
         self.last_nis = 0.0
+        self.consecutive_rejections = 0
 
     @property
     def position(self):
@@ -180,6 +185,7 @@ class KalmanFilter2D:
 
         if self.last_nis > self.gate_threshold:
             self.last_accepted = False
+            self.consecutive_rejections += 1
             return self.x.ravel()
 
         K = self.P @ self.H.T @ S_inv
@@ -188,4 +194,5 @@ class KalmanFilter2D:
         self.P = (self.I - K @ self.H) @ self.P
 
         self.last_accepted = True
+        self.consecutive_rejections = 0
         return self.x.ravel()

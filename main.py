@@ -40,6 +40,7 @@ def parse_args():
     parser.add_argument("--max_coast", type=float, default=0.25, help="Seconds the filter may coast through missed detections before the track is dropped")
     parser.add_argument("--process_noise", type=float, default=5000.0, help="Kalman process noise (px^2/s^4). Higher is more responsive")
     parser.add_argument("--measurement_noise", type=float, default=25.0, help="Kalman measurement noise (px^2)")
+    parser.add_argument("--max_rejections", type=int, default=5, help="Consecutive gated-out measurements before the filter is considered locked out and reset")
     return parser.parse_args()
 
 
@@ -144,8 +145,23 @@ def main():
                         kalman.update((cx, cy))
                         if not kalman.last_accepted:
                             logger.warning(
-                                "Rejected outlier detection (NIS=%.1f)", kalman.last_nis
+                                "Rejected outlier detection (NIS=%.1f, %d in a row)",
+                                kalman.last_nis, kalman.consecutive_rejections,
                             )
+
+                        # Without this the filter can lock out: once the prediction
+                        # drifts off the target every measurement fails the gate, nothing
+                        # is fused, and the state coasts at a constant velocity forever
+                        # while still publishing.
+                        if kalman.consecutive_rejections >= args.max_rejections:
+                            logger.warning(
+                                "Filter locked out after %d rejections, resetting",
+                                kalman.consecutive_rejections,
+                            )
+                            kalman.reset()
+                            consecutive_detections = 0
+                            history.clear()
+                            last_detection_time = None
 
                 else:
                     # No detection this frame. Coast on the motion model for a short
