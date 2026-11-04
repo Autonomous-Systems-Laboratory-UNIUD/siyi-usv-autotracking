@@ -14,7 +14,7 @@ from detector_adapter import DetectionService
 from gstreamer import GStreamerFrameStreamer
 from keyboard_manager import TerminalKeyReader
 from kalman_filter import KalmanFilter2D
-from helpers import serialize_vector3
+from helpers import serialize_twist
 
 SDK_DIR = os.path.join(os.path.dirname(__file__), "siyi_sdk")
 if SDK_DIR not in sys.path:
@@ -197,21 +197,26 @@ def main():
                     and (detection is not None or coasting_now)
                 ):
                     vx, vy = kalman.velocity
+                    px, py = kalman.position
 
-                    msg = serialize_vector3(vx, vy, 0.0)
+                    # Twist: linear = velocity (px/s) + valid flag in z,
+                    # angular = position (px, from the top-left corner).
+                    msg = serialize_twist(vx, vy, 1.0, px, py, 0.0)
                     pub.put(msg)
                     publishing = True
 
                     logger.info(
-                        "Published vx=%.3f vy=%.3f",
+                        "Published vx=%.3f vy=%.3f x=%.1f y=%.1f",
                         vx,
                         vy,
+                        px,
+                        py,
                     )
 
                 elif publishing:
-                    # Emit a single zero so the consumer stops applying a stale
-                    # correction for the duration of the dropout.
-                    pub.put(serialize_vector3(0.0, 0.0, 0.0))
+                    # Emit a single zero (valid flag cleared) so the consumer stops
+                    # applying a stale correction for the duration of the dropout.
+                    pub.put(serialize_twist(0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
                     publishing = False
 
                     logger.info("Published zero (no valid track)")
