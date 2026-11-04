@@ -1,6 +1,7 @@
 #!/bin/bash
 
 PORT=$1
+GROUNDSTATION_IP="192.168.0.125"
 
 trap 'kill -- -$$' INT TERM EXIT
 
@@ -13,4 +14,4 @@ gst-launch-1.0 \
     rtph264depay ! \
     h264parse ! \
     rtph264pay pt=96 config-interval=1 ! \
-    udpsink host=192.168.0.125 port=$PORT
+    udpsink host=$GROUNDSTATION_IP port=$PORT
