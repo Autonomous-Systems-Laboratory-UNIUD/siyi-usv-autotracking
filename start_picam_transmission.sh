@@ -1,6 +1,7 @@
+
 #!/bin/bash
 
-PORT=$1
+PORT="$1"
 GROUNDSTATION_IP="192.168.0.125"
 
 rpicam-vid \
@@ -13,8 +14,13 @@ rpicam-vid \
     --bitrate 4000000 \
     --inline \
     --output - \
+    2>/dev/null \
     | gst-launch-1.0 -q \
         fdsrc fd=0 \
         ! h264parse \
         ! rtph264pay pt=96 config-interval=1 \
-        ! udpsink host=$GROUNDSTATION_IP port=$PORT sync=false async=false
+        ! udpsink \
+            host="$GROUNDSTATION_IP" \
+            port="$PORT" \
+            sync=false \
+            async=false
